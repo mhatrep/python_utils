@@ -1,0 +1,40 @@
+import pickle
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("My App").getOrCreate()
+
+# Assuming df is your DataFrame
+df = spark.range(1000)  # Just a placeholder for your actual DataFrame
+
+# Function to compute the size of a partition
+def partition_size(partition):
+    serialized_partition = pickle.dumps(list(partition))
+    return len(serialized_partition)
+
+# Compute the size of each partition and collect the sizes to the driver program
+partition_sizes = df.rdd.mapPartitions(partition_size).collect()
+
+# Compute the average partition size
+avg_partition_size = sum(partition_sizes) / len(partition_sizes)
+
+print("Average partition size: {} bytes".format(avg_partition_size))
+
+
+
+---------------------
+
+
+df.rdd.glom().collect()
+
+
+-------------------
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("My App").getOrCreate()
+
+# Assuming df is your DataFrame
+df = spark.range(1000)  # Just a placeholder for your actual DataFrame
+
+num_partitions = df.rdd.getNumPartitions()
+
+print("Number of partitions: {}".format(num_partitions))
