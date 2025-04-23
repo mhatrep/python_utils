@@ -1,6 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont
 import random
-
+ 
 # An extended palette of harmonious colors to use for the shapes.
 COLOR_PALETTE = [
     (236, 208, 120),
