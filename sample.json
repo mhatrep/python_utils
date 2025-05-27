@@ -1,0 +1,38 @@
+{
+  "organization": {
+    "departments": [
+      {
+        "name": "Engineering",
+        "teams": [
+          {
+            "name": "Platform",
+            "projects": [
+              {
+                "name": "Migration",
+                "tasks": [
+                  {
+                    "task_id": "T1001",
+                    "subtasks": [
+                      {
+                        "subtask_id": "ST1",
+                        "status": "complete"
+                      },
+                      {
+                        "subtask_id": "ST2",
+                        "status": "in progress"
+                      }
+                    ]
+                  },
+                  {
+                    "task_id": "T1002",
+                    "subtasks": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
