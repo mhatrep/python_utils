@@ -1,0 +1,55 @@
+import json
+from pathlib import Path
+
+def flatten_with_array_levels_and_types(obj, path="", level=0, results=None):
+    if results is None:
+        results = []
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            new_path = f"{path}.{k}" if path else k
+            flatten_with_array_levels_and_types(v, new_path, level, results)
+    elif isinstance(obj, list):
+        results.append((path, level, "array"))
+        for item in obj:
+            flatten_with_array_levels_and_types(item, path, level + 1, results)
+    else:
+        dtype = type(obj).__name__
+        results.append((path, level, dtype))
+
+    return results
+
+def normalize_type(typename):
+    mapping = {
+        "str": "string",
+        "int": "number",
+        "float": "number",
+        "bool": "boolean",
+        "NoneType": "null",
+        "dict": "object",
+        "list": "array"
+    }
+    return mapping.get(typename, typename)
+
+if __name__ == "__main__":
+    # Load JSON from file
+    json_file = Path("sample.json")
+    with open(json_file, "r") as f:
+        data = json.load(f)
+
+    raw_flattened = flatten_with_array_levels_and_types(data)
+
+    # Deduplicate paths
+    seen = set()
+    output_lines = ["element,level,datatype"]
+    for path, lvl, dtype in raw_flattened:
+        if path not in seen:
+            seen.add(path)
+            dtype_str = normalize_type(dtype)
+            output_lines.append(f"{path},{lvl},{dtype_str}")
+
+    # Save to output.txt
+    with open("output.txt", "w") as f_out:
+        f_out.write("\n".join(output_lines))
+
+    print("Flattened output with types written to output.txt")
