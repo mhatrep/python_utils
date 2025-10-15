@@ -1,0 +1,741 @@
+Option Explicit
+
+Sub RemoveDuplicatesEachColumn()
+    Dim col As Range
+    For Each col In Selection.Columns
+        col.RemoveDuplicates Columns:=1, Header:=xlYes
+    Next col
+End Sub
+
+
+
+' ===== Entry points =====
+Sub Color_MatchesOnly_All_UniqueColors()
+    ColorMatches_UniquePalette Selection, perColumn:=False, skipHeader:=False, caseSensitive:=False
+End Sub
+
+Sub Color_MatchesOnly_PerColumn_UniqueColors()
+    ColorMatches_UniquePalette Selection, perColumn:=True, skipHeader:=False, caseSensitive:=False
+End Sub
+
+Sub ClearFill_OnSelection()
+    On Error Resume Next
+    With Selection.Interior
+        .Pattern = xlSolid
+        .TintAndShade = 0
+        .ColorIndex = xlColorIndexNone
+    End With
+    On Error GoTo 0
+End Sub
+
+' ===== Core =====
+Private Sub ColorMatches_UniquePalette(ByVal rng As Range, ByVal perColumn As Boolean, _
+                                       ByVal skipHeader As Boolean, ByVal caseSensitive As Boolean)
+    If rng Is Nothing Then Exit Sub
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+
+    If perColumn Then
+        Dim c As Range
+        For Each c In rng.Columns
+            ColorOneColumn_UniquePalette c, skipHeader, caseSensitive
+        Next c
+    Else
+        ColorWholeRange_UniquePalette rng, skipHeader, caseSensitive
+    End If
+
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+End Sub
+
+Private Sub ColorWholeRange_UniquePalette(ByVal rng As Range, ByVal skipHeader As Boolean, ByVal caseSensitive As Boolean)
+    Dim counts As Object: Set counts = CreateObject("Scripting.Dictionary")
+    counts.CompareMode = IIf(caseSensitive, 0, 1)
+
+    Dim firstDataRow As Long: firstDataRow = rng.Row
+    If skipHeader Then firstDataRow = firstDataRow + 1
+
+    Dim cell As Range, key As String
+    ' Pass 1: count frequencies
+    For Each cell In rng.Cells
+        If cell.Row >= firstDataRow Then
+            If Not IsError(cell.Value2) Then
+                key = Normalize(cell.Value2, caseSensitive)
+                If Len(key) > 0 Then
+                    If counts.Exists(key) Then
+                        counts(key) = counts(key) + 1
+                    Else
+                        counts.Add key, 1
+                    End If
+                End If
+            End If
+        End If
+    Next cell
+
+    ' Build list of keys with freq >= 2
+    Dim k As Variant, keys() As String, n As Long
+    For Each k In counts.keys
+        If counts(k) >= 2 Then
+            ReDim Preserve keys(n)
+            keys(n) = CStr(k)
+            n = n + 1
+        End If
+    Next k
+
+    ' If no duplicates, clear fills and exit
+    If n = 0 Then
+        For Each cell In rng.Cells
+            cell.Interior.ColorIndex = xlColorIndexNone
+        Next cell
+        Exit Sub
+    End If
+
+    ' Sort keys for deterministic color assignment (alphabetical)
+    QuickSortString keys, 0, n - 1
+
+    ' Create unique color map with a palette large enough for n groups
+    Dim colorMap As Object: Set colorMap = CreateObject("Scripting.Dictionary")
+    Dim i As Long
+    For i = 0 To n - 1
+        colorMap.Add keys(i), ColorFromIndex(i, n)
+    Next i
+
+    ' Pass 2: apply colors only to duplicates
+    For Each cell In rng.Cells
+        If cell.Row >= firstDataRow Then
+            If Not IsError(cell.Value2) Then
+                key = Normalize(cell.Value2, caseSensitive)
+                If Len(key) > 0 Then
+                    If colorMap.Exists(key) Then
+                        cell.Interior.Color = colorMap(key)
+                    Else
+                        cell.Interior.ColorIndex = xlColorIndexNone
+                    End If
+                Else
+                    cell.Interior.ColorIndex = xlColorIndexNone
+                End If
+            End If
+        End If
+    Next cell
+End Sub
+
+Private Sub ColorOneColumn_UniquePalette(ByVal colRange As Range, ByVal skipHeader As Boolean, ByVal caseSensitive As Boolean)
+    Dim counts As Object: Set counts = CreateObject("Scripting.Dictionary")
+    counts.CompareMode = IIf(caseSensitive, 0, 1)
+
+    Dim firstDataRow As Long: firstDataRow = colRange.Row
+    If skipHeader Then firstDataRow = firstDataRow + 1
+
+    Dim cell As Range, key As String
+    ' Pass 1: count frequencies
+    For Each cell In colRange.Cells
+        If cell.Row >= firstDataRow Then
+            If Not IsError(cell.Value2) Then
+                key = Normalize(cell.Value2, caseSensitive)
+                If Len(key) > 0 Then
+                    If counts.Exists(key) Then
+                        counts(key) = counts(key) + 1
+                    Else
+                        counts.Add key, 1
+                    End If
+                End If
+            End If
+        End If
+    Next cell
+
+    ' Build list of keys with freq >= 2
+    Dim k As Variant, keys() As String, n As Long, i As Long
+    For Each k In counts.keys
+        If counts(k) >= 2 Then
+            ReDim Preserve keys(n)
+            keys(n) = CStr(k)
+            n = n + 1
+        End If
+    Next k
+
+    ' If no duplicates, clear fills and exit
+    If n = 0 Then
+        For Each cell In colRange.Cells
+            cell.Interior.ColorIndex = xlColorIndexNone
+        Next cell
+        Exit Sub
+    End If
+
+    ' Sort keys for deterministic assignment
+    QuickSortString keys, 0, n - 1
+
+    ' Unique color per key within this column
+    Dim colorMap As Object: Set colorMap = CreateObject("Scripting.Dictionary")
+    For i = 0 To n - 1
+        colorMap.Add keys(i), ColorFromIndex(i, n)
+    Next i
+
+    ' Pass 2: apply colors
+    For Each cell In colRange.Cells
+        If cell.Row >= firstDataRow Then
+            If Not IsError(cell.Value2) Then
+                key = Normalize(cell.Value2, caseSensitive)
+                If Len(key) > 0 And colorMap.Exists(key) Then
+                    cell.Interior.Color = colorMap(key)
+                Else
+                    cell.Interior.ColorIndex = xlColorIndexNone
+                End If
+            End If
+        End If
+    Next cell
+End Sub
+
+' ===== Helpers =====
+Private Function Normalize(ByVal v As Variant, ByVal caseSensitive As Boolean) As String
+    Dim S As String
+    On Error Resume Next
+    S = CStr(v)
+    On Error GoTo 0
+    S = Trim$(S)
+    If Not caseSensitive Then S = LCase$(S)
+    Normalize = S
+End Function
+
+' Generate a collision-free palette: unique color for each index 0..(n-1)
+' Uses golden-angle hue spacing and cycles lightness/saturation for large n
+Private Function ColorFromIndex(ByVal idx As Long, ByVal n As Long) As Long
+    Dim hue As Double, sat As Double, light As Double
+    ' Golden-angle increments to maximize separation
+    hue = (idx * 137.508) - 360# * Fix((idx * 137.508) / 360#)
+    ' Cycle saturation/lightness every ~12 colors to keep contrast
+    Select Case (idx Mod 12)
+        Case 0, 1, 2, 3:     sat = 0.6: light = 0.6
+        Case 4, 5, 6, 7:     sat = 0.55: light = 0.68
+        Case Else:           sat = 0.5: light = 0.52
+    End Select
+
+    Dim r As Long, G As Long, B As Long
+    HSLtoRGB hue, sat, light, r, G, B
+    ColorFromIndex = RGB(r, G, B)
+End Function
+
+' Convert HSL (0..360, 0..1, 0..1) to RGB (0..255)
+Private Sub HSLtoRGB(ByVal H As Double, ByVal S As Double, ByVal L As Double, _
+                     ByRef r As Long, ByRef G As Long, ByRef B As Long)
+    Dim c As Double, x As Double, m As Double
+    Dim r1 As Double, g1 As Double, b1 As Double
+    Dim Hp As Double
+
+    c = (1 - Abs(2 * L - 1)) * S
+    Hp = (H Mod 360#) / 60#
+    x = c * (1 - Abs((Hp Mod 2) - 1))
+
+    r1 = 0: g1 = 0: b1 = 0
+    Select Case Int(Hp)
+        Case 0: r1 = c: g1 = x: b1 = 0
+        Case 1: r1 = x: g1 = c: b1 = 0
+        Case 2: r1 = 0: g1 = c: b1 = x
+        Case 3: r1 = 0: g1 = x: b1 = c
+        Case 4: r1 = x: g1 = 0: b1 = c
+        Case Else: r1 = c: g1 = 0: b1 = x
+    End Select
+
+    m = L - c / 2
+    r = ClampByte((r1 + m) * 255#)
+    G = ClampByte((g1 + m) * 255#)
+    B = ClampByte((b1 + m) * 255#)
+End Sub
+
+Private Function ClampByte(ByVal x As Double) As Long
+    If x < 0# Then
+        ClampByte = 0
+    ElseIf x > 255# Then
+        ClampByte = 255
+    Else
+        ClampByte = CLng(Round(x, 0))
+    End If
+End Function
+
+' In-place quicksort for string array
+Private Sub QuickSortString(ByRef A() As String, ByVal lo As Long, ByVal hi As Long)
+    Dim i As Long, j As Long
+    Dim pivot As String, tmp As String
+    i = lo: j = hi
+    pivot = A((lo + hi) \ 2)
+    Do While i <= j
+        Do While A(i) < pivot: i = i + 1: Loop
+        Do While A(j) > pivot: j = j - 1: Loop
+        If i <= j Then
+            tmp = A(i): A(i) = A(j): A(j) = tmp
+            i = i + 1: j = j - 1
+        End If
+    Loop
+    If lo < j Then QuickSortString A, lo, j
+    If i < hi Then QuickSortString A, i, hi
+End Sub
+
+
+
+
+Sub Style_Modern_Table_TopHeader()
+    Dim rng As Range
+    Dim headerRow As Range
+    Dim dataRange As Range
+    Dim nCols As Long, nRows As Long
+    Dim ws As Worksheet
+    Dim topRow As Long
+    Dim borderColor As Long
+    
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Please select the table range (top row must be header).", vbExclamation
+        Exit Sub
+    End If
+    
+    Set rng = Selection
+    Set ws = rng.Worksheet
+    nCols = rng.Columns.Count
+    nRows = rng.Rows.Count
+    topRow = rng.Row
+    borderColor = RGB(&H99, &H99, &H99)  ' #999999
+    
+    If nRows < 2 Then
+        MsgBox "Please select at least 2 rows (header + data).", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Define header and data ranges
+    Set headerRow = rng.Rows(1)
+    If nRows > 1 Then Set dataRange = rng.Offset(1, 0).Resize(nRows - 1, nCols)
+    
+    Application.ScreenUpdating = False
+    
+    ' ---- Clear previous formatting ----
+    rng.FormatConditions.Delete
+    rng.Interior.ColorIndex = xlNone
+    rng.Font.Bold = False
+    rng.Borders.LineStyle = xlNone
+    
+    ' ---- Set font ----
+    On Error Resume Next
+    rng.Font.Name = "Segoe UI"
+    If rng.Font.Name <> "Segoe UI" Then rng.Font.Name = "Calibri"
+    On Error GoTo 0
+    rng.Font.Size = 10
+    
+    ' ---- Header formatting ----
+    With headerRow
+        .Font.Bold = True
+        .Font.Color = RGB(33, 37, 41)                   ' near-black
+        .Interior.Color = RGB(242, 242, 242)           ' very light gray
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    ' ---- Banding in data ----
+    If Not dataRange Is Nothing Then
+        Dim bandColor As Long
+        bandColor = RGB(248, 249, 250)  ' soft light band
+        
+        Dim f As FormatCondition
+        dataRange.FormatConditions.Delete
+        Set f = dataRange.FormatConditions.Add(Type:=xlExpression, _
+            Formula1:="=MOD(ROW()-" & topRow & ",2)=1")
+        f.Interior.Color = bandColor
+    End If
+    
+    ' ---- Border styling ----
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Color = borderColor
+        .Weight = xlHairline
+    End With
+    
+    ' ---- Inside borders (thin grid) ----
+    With rng.Borders(xlInsideHorizontal)
+        .LineStyle = xlContinuous
+        .Color = borderColor
+        .Weight = xlHairline
+    End With
+    With rng.Borders(xlInsideVertical)
+        .LineStyle = xlContinuous
+        .Color = borderColor
+        .Weight = xlHairline
+    End With
+    
+    ' ---- Optional: alignment and wrap ----
+    dataRange.HorizontalAlignment = xlLeft
+    headerRow.WrapText = False
+    dataRange.WrapText = False
+    
+    Application.ScreenUpdating = True
+End Sub
+
+
+
+
+
+Sub AutoFit_With_Padding()
+    Dim targetRange As Range
+    Dim c As Range
+    Dim pad As Double
+    
+    ' Padding width (characters)
+    pad = 2   ' You can adjust this (2–4 is usually perfect)
+    
+    ' Use current selection or entire used range
+    If TypeName(Selection) = "Range" Then
+        Set targetRange = Selection
+    Else
+        Set targetRange = ActiveSheet.UsedRange
+    End If
+    
+    If targetRange Is Nothing Then Exit Sub
+    
+    Application.ScreenUpdating = False
+    
+    ' AutoFit first
+    targetRange.EntireColumn.AutoFit
+    
+    ' Add a bit of padding to avoid truncating headers
+    For Each c In targetRange.Columns
+        c.ColumnWidth = c.ColumnWidth + pad
+    Next c
+    
+    Application.ScreenUpdating = True
+End Sub
+
+
+Sub Format_Table_Modern()
+    Dim rng As Range
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set rng = Selection
+    
+    ' Clear previous formatting
+    rng.FormatConditions.Delete
+    rng.Interior.ColorIndex = xlNone
+    rng.Font.Bold = False
+    rng.Borders.LineStyle = xlNone
+    
+    ' Font
+    On Error Resume Next
+    rng.Font.Name = "Segoe UI"
+    If rng.Font.Name <> "Segoe UI" Then rng.Font.Name = "Calibri"
+    On Error GoTo 0
+    rng.Font.Size = 10
+    
+    ' Header row
+    With rng.Rows(1)
+        .Font.Bold = True
+        .Interior.Color = RGB(242, 242, 242)    ' light gray
+        .Font.Color = RGB(33, 37, 41)
+        .HorizontalAlignment = xlCenter
+    End With
+
+    ' Alternating banding
+    Dim f As FormatCondition
+    rng.Offset(1, 0).Resize(rng.Rows.Count - 1, rng.Columns.Count).FormatConditions.Delete
+    Set f = rng.Offset(1, 0).Resize(rng.Rows.Count - 1, rng.Columns.Count). _
+            FormatConditions.Add(Type:=xlExpression, Formula1:="=MOD(ROW()-" & rng.Row & ",2)=1")
+    f.Interior.Color = RGB(248, 249, 250)
+
+    ' Borders
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(&H99, &H99, &H99)   ' #999999
+        .Weight = xlHairline
+    End With
+    
+    ' AutoFit with padding
+    Dim c As Range
+    For Each c In rng.Columns
+        c.EntireColumn.AutoFit
+        c.ColumnWidth = c.ColumnWidth + 2
+    Next c
+End Sub
+
+Sub Quick_Pivot()
+    Dim src As Range
+    Dim ws As Worksheet
+    Dim pvtCache As PivotCache
+    Dim pvt As PivotTable
+    Dim dest As Range
+
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Select a data range first.", vbExclamation
+        Exit Sub
+    End If
+
+    Set src = Selection
+    Set ws = Worksheets.Add
+    ws.Name = "Pivot_" & Format(Now, "hhmmss")
+
+    Set pvtCache = ActiveWorkbook.PivotCaches.Create( _
+        SourceType:=xlDatabase, SourceData:=src)
+
+    Set dest = ws.Range("A3")
+    Set pvt = pvtCache.CreatePivotTable(TableDestination:=dest, TableName:="QuickPivot")
+
+    ' Drop first field in Rows if exists
+    On Error Resume Next
+    pvt.PivotFields(1).Orientation = xlRowField
+    pvt.PivotFields(1).Position = 1
+
+    ' Drop second field in Values if exists
+    If pvt.PivotFields.Count > 1 Then
+        pvt.AddDataField pvt.PivotFields(2), "Sum of " & pvt.PivotFields(2).Name, xlSum
+    End If
+    On Error GoTo 0
+
+    ws.Select
+    MsgBox "? Quick Pivot Table created on " & ws.Name, vbInformation
+End Sub
+
+
+Sub Highlight_Duplicates_Safe()
+    Dim rng As Range
+    Dim f As FormatCondition
+    Dim firstCell As String
+
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Please select a range first.", vbExclamation
+        Exit Sub
+    End If
+
+    Set rng = Selection
+    firstCell = rng.Cells(1, 1).Address
+
+    ' Clear existing conditional formatting
+    rng.FormatConditions.Delete
+
+    ' Add CF rule: highlight if count of value in selection > 1
+    Set f = rng.FormatConditions.Add(Type:=xlExpression, _
+        Formula1:="=COUNTIF(" & rng.Address & "," & firstCell & ")>1")
+
+    f.Interior.Color = RGB(255, 230, 200)  ' light orange
+End Sub
+
+
+Sub Format_Table_Minimalist()
+    Dim rng As Range, f As FormatCondition, c As Range
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set rng = Selection
+
+    rng.FormatConditions.Delete
+    rng.Interior.ColorIndex = xlNone
+    rng.Font.Bold = False
+    rng.Borders.LineStyle = xlNone
+
+    rng.Font.Name = "Segoe UI"
+    rng.Font.Size = 10
+
+    ' Header
+    With rng.Rows(1)
+        .Font.Bold = True
+        .Interior.Color = RGB(224, 236, 255) ' soft blue
+        .Font.Color = RGB(33, 37, 41)
+        .HorizontalAlignment = xlCenter
+    End With
+
+    ' Banding
+    Set f = rng.Offset(1).Resize(rng.Rows.Count - 1).FormatConditions.Add( _
+            xlExpression, , "=MOD(ROW()-" & rng.Row & ",2)=1")
+    f.Interior.Color = RGB(242, 246, 252)
+
+    ' Border
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(200, 200, 200)
+        .Weight = xlThin
+    End With
+
+    For Each c In rng.Columns
+        c.EntireColumn.AutoFit
+        c.ColumnWidth = c.ColumnWidth + 2
+    Next c
+End Sub
+
+
+
+Sub Format_Table_Elegant_Dark()
+    Dim rng As Range, f As FormatCondition, c As Range
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set rng = Selection
+
+    rng.FormatConditions.Delete
+    rng.Interior.ColorIndex = xlNone
+    rng.Font.Bold = False
+    rng.Borders.LineStyle = xlNone
+
+    rng.Font.Name = "Calibri"
+    rng.Font.Size = 10
+
+    ' Header
+    With rng.Rows(1)
+        .Font.Bold = True
+        .Interior.Color = RGB(55, 71, 79) ' dark slate
+        .Font.Color = RGB(255, 255, 255)  ' white text
+        .HorizontalAlignment = xlCenter
+    End With
+
+    ' Banding
+    Set f = rng.Offset(1).Resize(rng.Rows.Count - 1).FormatConditions.Add( _
+            xlExpression, , "=MOD(ROW()-" & rng.Row & ",2)=1")
+    f.Interior.Color = RGB(240, 240, 240)
+
+    ' Border
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(153, 153, 153)
+        .Weight = xlHairline
+    End With
+
+    For Each c In rng.Columns
+        c.EntireColumn.AutoFit
+        c.ColumnWidth = c.ColumnWidth + 2
+    Next c
+End Sub
+
+
+Sub Format_Table_Professional_Stripe()
+    Dim rng As Range, f As FormatCondition, c As Range
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set rng = Selection
+
+    rng.FormatConditions.Delete
+    rng.Interior.ColorIndex = xlNone
+    rng.Font.Bold = False
+    rng.Borders.LineStyle = xlNone
+
+    rng.Font.Name = "Segoe UI"
+    rng.Font.Size = 10
+
+    ' Header
+    With rng.Rows(1)
+        .Font.Bold = True
+        .Interior.Color = RGB(255, 247, 203) ' light yellow
+        .Font.Color = RGB(50, 50, 50)
+        .HorizontalAlignment = xlCenter
+    End With
+
+    ' Banding
+    Set f = rng.Offset(1).Resize(rng.Rows.Count - 1).FormatConditions.Add( _
+            xlExpression, , "=MOD(ROW()-" & rng.Row & ",2)=1")
+    f.Interior.Color = RGB(245, 245, 245)
+
+    ' Border
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(180, 180, 180)
+        .Weight = xlThin
+    End With
+
+    For Each c In rng.Columns
+        c.EntireColumn.AutoFit
+        c.ColumnWidth = c.ColumnWidth + 2
+    Next c
+End Sub
+
+
+Sub Format_Table_Subtle_Box()
+    Dim rng As Range, c As Range
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set rng = Selection
+
+    rng.FormatConditions.Delete
+    rng.Interior.ColorIndex = xlNone
+    rng.Font.Bold = False
+    rng.Borders.LineStyle = xlNone
+
+    rng.Font.Name = "Calibri"
+    rng.Font.Size = 10
+
+    ' Header
+    With rng.Rows(1)
+        .Font.Bold = True
+        .Interior.Color = RGB(230, 230, 230)
+        .Font.Color = RGB(0, 0, 0)
+        .HorizontalAlignment = xlLeft
+    End With
+
+    ' Border - Boxed only
+    With rng.Borders
+        .LineStyle = xlContinuous
+        .Color = RGB(150, 150, 150)
+        .Weight = xlThin
+    End With
+
+    ' Thicker outline border
+    With rng.Borders(xlEdgeTop)
+        .Weight = xlMedium
+    End With
+    With rng.Borders(xlEdgeBottom)
+        .Weight = xlMedium
+    End With
+    With rng.Borders(xlEdgeLeft)
+        .Weight = xlMedium
+    End With
+    With rng.Borders(xlEdgeRight)
+        .Weight = xlMedium
+    End With
+
+    For Each c In rng.Columns
+        c.EntireColumn.AutoFit
+        c.ColumnWidth = c.ColumnWidth + 2
+    Next c
+End Sub
+
+Sub InsertTitleSubtitle_Corporate()
+    Dim rng As Range, cols As Long, topRow As Long, ws As Worksheet, titleRange As Range, subRange As Range
+    
+    If TypeName(Selection) <> "Range" Then Exit Sub
+    Set ws = ActiveSheet
+    Set rng = Selection
+    cols = rng.Columns.Count
+    topRow = rng.Row
+    
+    ' Insert two rows above the selection
+    ws.Rows(topRow).Resize(2).Insert Shift:=xlDown
+    
+    Set titleRange = ws.Range(ws.Cells(topRow, rng.Column), ws.Cells(topRow, rng.Column + cols - 1))
+    Set subRange = ws.Range(ws.Cells(topRow + 1, rng.Column), ws.Cells(topRow + 1, rng.Column + cols - 1))
+    
+    ' Clear merges; use Center Across
+    titleRange.MergeArea.UnMerge
+    subRange.MergeArea.UnMerge
+    
+    ' Font fallback
+    On Error Resume Next
+    titleRange.Font.Name = "Segoe UI"
+    If titleRange.Font.Name <> "Segoe UI" Then titleRange.Font.Name = "Calibri"
+    subRange.Font.Name = titleRange.Font.Name
+    On Error GoTo 0
+    
+    ' Title style
+    With titleRange
+        .HorizontalAlignment = xlCenterAcrossSelection
+        .VerticalAlignment = xlCenter
+        .Interior.Color = RGB(240, 244, 248) ' light cool gray-blue
+        .Font.Size = 14
+        .Font.Bold = True
+        .Font.Color = RGB(33, 37, 41)
+        .RowHeight = 28
+        .EntireRow.AutoFit
+        .Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Borders(xlEdgeBottom).Color = RGB(180, 190, 200)
+    End With
+    
+    ' Subtitle style
+    With subRange
+        .HorizontalAlignment = xlCenterAcrossSelection
+        .VerticalAlignment = xlCenter
+        .Interior.Color = RGB(248, 250, 252)
+        .Font.Size = 10
+        .Font.Bold = False
+        .Font.Color = RGB(90, 98, 104)
+        .RowHeight = 20
+        .EntireRow.AutoFit
+        .Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Borders(xlEdgeBottom).Color = RGB(210, 215, 220)
+    End With
+    
+    ' Placeholders
+    titleRange.Cells(1, 1).Value = "Report Title"
+    subRange.Cells(1, 1).Value = "Subtitle or Description"
+End Sub
+
