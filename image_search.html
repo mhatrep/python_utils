@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Recursive Image Finder</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#121833; --accent:#6ee7ff; --muted:#a3b1d1; --text:#e6ecff; --ring:#2a3566;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Segoe UI,Roboto,Arial,Helvetica,sans-serif;background:linear-gradient(180deg,#0b1020,#0a0f1b 50%,#070b14);color:var(--text)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;padding:16px}
+    .card{position:relative;border:1px solid var(--ring);border-radius:12px;overflow:hidden;background:linear-gradient(180deg,#111633,#0e1430);transition:transform .2s ease, box-shadow .2s ease;cursor:pointer}
+    .card:hover{transform:scale(1.1);z-index:2;box-shadow:0 8px 20px rgba(110,231,255,.2)}
+    .thumb{width:100%;height:200px;object-fit:cover;display:block;transition:transform .3s ease}
+    .card:hover .thumb{transform:scale(1.2)}
+    .meta{padding:6px 10px;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-top:1px solid var(--ring)}
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;z-index:1000}
+    .overlay img{max-width:90vw;max-height:90vh;border-radius:8px;box-shadow:0 0 20px rgba(255,255,255,.3)}
+    .overlay.open{display:flex}
+    .overlay:after{content:'×';position:absolute;top:20px;right:30px;font-size:40px;color:white;cursor:pointer}
+  </style>
+</head>
+<body>
+  <h1 style="text-align:center;padding:12px 0 0;color:var(--accent)">Recursive Image Finder</h1>
+  <p style="text-align:center;color:var(--muted)">Hover to enlarge thumbnails. Click any image to view full size.</p>
+  <div class="controls" style="text-align:center;margin:10px">
+    <input id="q" placeholder="Enter substring to match..." style="padding:8px 12px;width:300px;border-radius:8px;border:1px solid var(--ring);background:var(--panel);color:var(--text)">
+    <button id="pick" style="margin-left:8px;padding:8px 14px;border-radius:8px;border:1px solid var(--ring);background:var(--accent);color:#000;cursor:pointer">Choose Folder</button>
+    <label style="margin-left:8px;padding:8px 14px;border-radius:8px;border:1px solid var(--ring);background:#333;cursor:pointer;color:var(--text)">
+      Legacy Picker<input id="folderInput" type="file" webkitdirectory directory multiple style="display:none">
+    </label>
+  </div>
+  <div id="grid" class="grid"></div>
+  <div id="overlay" class="overlay"><img id="overlayImg" src="" alt="preview"></div>
+
+  <template id="cardTpl">
+    <figure class="card">
+      <img class="thumb" alt="" />
+      <figcaption class="meta"></figcaption>
+    </figure>
+  </template>
+
+  <script>
+  (function(){
+    const q=document.getElementById('q');
+    const pick=document.getElementById('pick');
+    const folderInput=document.getElementById('folderInput');
+    const grid=document.getElementById('grid');
+    const overlay=document.getElementById('overlay');
+    const overlayImg=document.getElementById('overlayImg');
+    const cardTpl=document.getElementById('cardTpl');
+
+    const IMG_EXT=['.jpg','.jpeg','.png','.gif','.bmp','.webp','.svg'];
+    let objectUrls=[];
+    let indexed=[]; // {name, path, file, url}
+
+    const isImage = (name)=> IMG_EXT.some(ext=> name.toLowerCase().endsWith(ext));
+    const matches = (name,substr)=> !substr || name.toLowerCase().includes(substr.toLowerCase());
+
+    function revokeAll(){ for(const u of objectUrls){ try{ URL.revokeObjectURL(u); }catch(e){} } objectUrls=[]; }
+
+    function addCard(item){
+      const frag=cardTpl.content.cloneNode(true);
+      const img=frag.querySelector('img');
+      const cap=frag.querySelector('.meta');
+      if(!item.url){ item.url = URL.createObjectURL(item.file); objectUrls.push(item.url); }
+      img.src=item.url; img.alt=item.path; cap.textContent=item.path;
+      img.addEventListener('click',()=> showOverlay(item.url));
+      grid.appendChild(frag);
+    }
+
+    function render(){
+      const query=q.value.trim();
+      grid.innerHTML='';
+      const view = indexed.filter(it=> matches(it.name, query));
+      for(const it of view){ addCard(it); }
+    }
+
+    function showOverlay(url){ overlayImg.src=url; overlay.classList.add('open'); }
+    overlay.addEventListener('click',()=> overlay.classList.remove('open'));
+
+    async function* iterateEntries(dirHandle,base=''){
+      for await(const [name,entry] of dirHandle.entries()){
+        const path=base? base+'/'+name : name;
+        if(entry.kind==='file') yield {entry,name,path};
+        else if(entry.kind==='directory') yield* iterateEntries(entry,path);
+      }
+    }
+
+    async function scanDir(handle){
+      // keep any previous results but clear and rebuild for simplicity
+      revokeAll(); indexed=[]; grid.innerHTML='';
+      for await(const {entry,name,path} of iterateEntries(handle)){
+        if(isImage(name)){
+          const file=await entry.getFile();
+          indexed.push({name, path, file, url:null});
+        }
+      }
+      render();
+    }
+
+    async function scanLegacy(fileList){
+      revokeAll(); indexed=[]; grid.innerHTML='';
+      for(const file of fileList){
+        if(isImage(file.name)){
+          indexed.push({name:file.name, path:(file.webkitRelativePath||file.name), file, url:null});
+        }
+      }
+      render();
+    }
+
+    pick.addEventListener('click',async()=>{
+      if(!window.showDirectoryPicker){ alert('Not supported. Use Legacy Picker.'); return; }
+      const dir=await window.showDirectoryPicker();
+      await scanDir(dir);
+    });
+
+    folderInput.addEventListener('change', async e=>{ if(e.target.files && e.target.files.length){ await scanLegacy(e.target.files); } });
+
+    q.addEventListener('input', debounce(render, 150));
+
+    window.addEventListener('beforeunload', revokeAll);
+
+    function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn.apply(null,a),ms); } }
+  })();
+  </script>
+</body>
+</html>
