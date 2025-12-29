@@ -1,0 +1,11 @@
+[search]
+directories = [
+  '.',
+  'C:/Utils/CSV_XLSX/New folder'
+]
+
+include_extensions = [".py", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv"]
+exclude_dir_names = [".git", "node_modules", "__pycache__", ".venv", "dist", "build"]
+max_file_size_mb = 5
+follow_symlinks = false
+image_extensions = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".svg"]
