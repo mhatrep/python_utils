@@ -1,11 +1,24 @@
-[search]
-directories = [
-  '.',
-  'C:/Utils/CSV_XLSX/New folder'
-]
+# psearch.toml - default config
 
-include_extensions = [".py", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".csv"]
-exclude_dir_names = [".git", "node_modules", "__pycache__", ".venv", "dist", "build"]
-max_file_size_mb = 5
+[search]
+roots = ["."]
+extensions = [".txt", ".csv"]
+exclude_dirs = [".git", "__pycache__", "node_modules", ".venv", "venv", "dist", "build"]
+exclude_files = []
+case_sensitive = false
+regex = false
+before = 0
+after = 0
+max_matches = 5000
+max_matches_per_file = 200
+max_file_mb = 50
 follow_symlinks = false
-image_extensions = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".svg"]
+csv_skip_header_row_hits = true
+
+
+[output]
+show_header_for_csv = true
+show_line_numbers = true
+show_file_banner = true
+context_separator = " "
+color = true
