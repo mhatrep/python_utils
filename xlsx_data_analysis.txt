@@ -1,0 +1,229 @@
+
+Option Explicit
+
+Sub ExtractUniqueValuesFromSheet()
+
+    Dim ws As Worksheet
+    Dim outputWs As Worksheet
+    Dim dict As Object
+    Dim lastRow As Long
+    Dim lastCol As Long
+    Dim col As Long
+    Dim row As Long
+    Dim outputCol As Long
+    Dim headerName As String
+    
+    Set ws = ActiveSheet
+    
+    ' Detect data range
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    
+    If lastRow < 2 Then
+        MsgBox "No data found!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Create or clear output sheet
+    On Error Resume Next
+    Set outputWs = Worksheets("Unique_Values_Profile")
+    If outputWs Is Nothing Then
+        Set outputWs = Worksheets.Add
+        outputWs.Name = "Unique_Values_Profile"
+    Else
+        outputWs.Cells.Clear
+    End If
+    On Error GoTo 0
+    
+    outputCol = 1
+    
+    ' Loop through each column
+    For col = 1 To lastCol
+        
+        headerName = ws.Cells(1, col).Value
+        
+        If headerName <> "" Then
+            
+            Set dict = CreateObject("Scripting.Dictionary")
+            dict.CompareMode = vbTextCompare
+            
+            ' Collect unique values
+            For row = 2 To lastRow
+                If ws.Cells(row, col).Value <> "" Then
+                    If Not dict.Exists(CStr(ws.Cells(row, col).Value)) Then
+                        dict.Add CStr(ws.Cells(row, col).Value), 1
+                    End If
+                End If
+            Next row
+            
+            ' Write header
+            outputWs.Cells(1, outputCol).Value = headerName
+            outputWs.Cells(1, outputCol).Font.Bold = True
+            
+            ' Write unique values
+            Dim key As Variant
+            Dim outputRow As Long
+            outputRow = 2
+            
+            For Each key In dict.Keys
+                outputWs.Cells(outputRow, outputCol).Value = key
+                outputRow = outputRow + 1
+            Next key
+            
+            outputCol = outputCol + 1
+            
+        End If
+        
+    Next col
+    
+    outputWs.Columns.AutoFit
+    
+    MsgBox "Unique values extracted successfully!", vbInformation
+
+End Sub
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Sub SortColumnsAlphabetically()
+
+    Dim ws As Worksheet
+    Dim lastCol As Long
+    Dim lastRow As Long
+    Dim sortRange As Range
+    
+    Set ws = ActiveSheet
+    
+    ' Detect used range
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+    
+    If lastCol < 2 Then
+        MsgBox "Not enough columns to sort.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Define range including all data
+    Set sortRange = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow, lastCol))
+    
+    ' Sort columns left to right by header row
+    sortRange.Sort _
+        Key1:=ws.Range(ws.Cells(1, 1), ws.Cells(1, lastCol)), _
+        Order1:=xlAscending, _
+        Orientation:=xlLeftToRight, _
+        Header:=xlYes
+    
+    MsgBox "Columns sorted alphabetically!", vbInformation
+
+End Sub
+
+
+
+
+
+
+Sub SortTableColumnsAlphabetically()
+
+    Dim tbl As ListObject
+    Dim i As Long
+    Dim j As Long
+    
+    Set tbl = ActiveSheet.ListObjects(1)
+    
+    For i = 1 To tbl.ListColumns.Count - 1
+        For j = i + 1 To tbl.ListColumns.Count
+            If tbl.ListColumns(j).Name < tbl.ListColumns(i).Name Then
+                tbl.ListColumns(j).Range.Cut
+                tbl.ListColumns(i).Range.Insert Shift:=xlToRight
+            End If
+        Next j
+    Next i
+    
+    MsgBox "Table columns sorted alphabetically!", vbInformation
+
+End Sub
+
+
+
+
+
+
+
+
+
+
+
+
+Sub ReorderColumnsByNonEmptyCount()
+    Dim ws As Worksheet
+    Dim lastRow As Long, lastCol As Long
+    Dim helperRow As Long
+    Dim dataRange As Range, keyRange As Range
+    Dim c As Long
+    
+    On Error GoTo CleanFail
+    Set ws = ActiveSheet
+
+    ' Speed settings
+    Application.ScreenUpdating = False
+    Application.EnableEvents = False
+    Application.Calculation = xlCalculationManual
+
+    ' Detect bounds
+    lastRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).row
+    lastCol = ws.Cells(1, ws.Columns.Count).End(xlToLeft).Column
+
+    If lastCol < 2 Or lastRow < 2 Then
+        MsgBox "Need headers in row 1 and at least 1 data row.", vbExclamation
+        GoTo CleanExit
+    End If
+
+    ' Insert helper row ABOVE headers (becomes new row 1)
+    ws.Rows(1).Insert Shift:=xlDown
+    helperRow = 1 ' counts go here
+    ' Headers moved to row 2; data starts row 3 now
+
+    ' Fill helper row with NON-EMPTY counts for each column (fast native function)
+    For c = 1 To lastCol
+        ws.Cells(helperRow, c).Value = WorksheetFunction.CountA(ws.Range(ws.Cells(3, c), ws.Cells(lastRow + 1, c)))
+    Next c
+
+    ' Define the full block (helper row + headers + data)
+    Set dataRange = ws.Range(ws.Cells(1, 1), ws.Cells(lastRow + 1, lastCol))
+    Set keyRange = ws.Range(ws.Cells(helperRow, 1), ws.Cells(helperRow, lastCol))
+
+    ' Sort columns left-to-right by helper counts (smallest -> largest)
+    dataRange.Sort Key1:=keyRange, Order1:=xlAscending, _
+                   Orientation:=xlLeftToRight, Header:=xlNo
+
+    ' Remove helper row
+    ws.Rows(1).Delete
+
+    MsgBox "Done: Columns reordered by NON-empty count (smallest ? largest).", vbInformation
+
+CleanExit:
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    Exit Sub
+
+CleanFail:
+    Application.Calculation = xlCalculationAutomatic
+    Application.EnableEvents = True
+    Application.ScreenUpdating = True
+    MsgBox "Error " & Err.Number & ": " & Err.Description, vbExclamation
+End Sub
+
+
