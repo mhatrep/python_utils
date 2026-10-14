@@ -254,3 +254,39 @@ print(decode(generated[0].tolist()))
 # --------------------------------------------------
 torch.save(model.state_dict(), "mini_gpt_weights.pt")
 print("Saved weights to mini_gpt_weights.pt")
+
+
+
+
+
+
+
+
+# --------------------------------------------------
+# 10. Interactive inference
+# --------------------------------------------------
+model.eval()
+
+print("\nMini-GPT is ready!")
+print("Type a prompt, or type 'exit' to quit.")
+
+while True:
+    prompt = input("\nYou: ").strip()
+
+    if prompt.lower() in {"exit", "quit"}:
+        break
+
+    # Ignore characters outside the training vocabulary.
+    if not prompt or not any(c in stoi for c in prompt):
+        print("Please enter text using characters in the training data.")
+        continue
+
+    context = torch.tensor(
+        [encode(prompt)], dtype=torch.long, device=device
+    )
+
+    with torch.no_grad():
+        output = model.generate(context, max_new_tokens=150)
+
+    generated_text = decode(output[0].tolist())
+    print("Mini-GPT:", generated_text)
